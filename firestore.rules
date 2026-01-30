@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user is a System Overlord (Admin)
+    function isSystemOverlord() {
+       return isSignedIn() && 
+         (request.auth.token.email == 'admin@ybsc.com' || 
+          exists(/databases/$(database)/documents/operatives/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/operatives/$(request.auth.uid)).data.role == 'SYSTEM_OVERLORD');
+    }
+
+    // 1. Operatives Collection (User Data)
+    match /operatives/{userId} {
+      // Users can only read their own data
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      
+      // Only Admins can create/update operative records
+      allow write: if isSystemOverlord();
+    }
+
+    // 2. Archives / Gallery (Media)
+    match /archives/{document=**} {
+      // Authenticated operatives can view archives
+      allow read: if isSignedIn();
+      
+      // Verify uploads (Only specific roles usually, but for now authenticated is better than public)
+      allow write: if isSignedIn();
+    }
+
+    // 3. Orders (Shop)
+    match /orders/{orderId} {
+      // Only the creator can read their own order
+      allow read: if isSignedIn() && request.auth.uid == resource.data.userId;
+      
+      // Anyone signed in can create an order
+      allow create: if isSignedIn();
+    }
+
+    // Default: Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
